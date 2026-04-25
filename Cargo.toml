@@ -1,5 +1,8 @@
 [workspace]
 members = [
+    "contracts/bug-bounty",
+    "contracts/affiliate-bonuses",
+    "contracts/credit-scoring-waitlist",
     "contracts/agent-nft",
     "contracts/agent-token",
     "contracts/amm",
@@ -19,6 +22,7 @@ members = [
     "contracts/referral-rewards",
     "contracts/risk-evaluation",
     "contracts/staking-bonuses",
+    "contracts/multisig-waitlist",
     "contracts/threshold-agent",
     "contracts/transaction-coordinator",
     "contracts/verifiable-credentials",
