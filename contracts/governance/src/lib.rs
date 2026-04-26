@@ -11,6 +11,13 @@ mod test;
 
 use storage::*;
 use types::*;
+use stellai_lib::rbac::{self, RoleType};
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum Error {
+    Unauthorized = 100,
+}
 
 #[contract]
 pub struct Governance;
@@ -816,6 +823,55 @@ impl Governance {
             (Symbol::new(&env, "ProposalExecuted"),),
             (proposal_id, executor, proposal.proposal_type),
         );
+    }
+
+    // ── Role Management (Issue #178) ─────────────────────────────────────────────
+
+    /// Assign governance role to an address (admin only)
+    /// Ensures mutual exclusion with KYC operator roles
+    pub fn assign_governance_role(env: Env, admin: Address, new_governance: Address) -> Result<(), Error> {
+        // Validate caller is admin using enhanced RBAC
+        rbac::require_admin_indirect_safe(&env, &admin)
+            .map_err(|_| Error::Unauthorized)?;
+        
+        // Use RBAC module for role assignment with mutual exclusion
+        rbac::assign_governance_role(&env, &admin, &new_governance)
+            .map_err(|_| Error::Unauthorized)?;
+
+        env.events().publish(
+            (Symbol::new(&env, "GovernanceRoleAssigned"),),
+            (new_governance, admin, env.ledger().timestamp()),
+        );
+
+        Ok(())
+    }
+
+    /// Assign KYC operator role to an address (admin only)
+    /// Ensures mutual exclusion with governance roles
+    pub fn assign_kyc_operator_role(env: Env, admin: Address, new_operator: Address) -> Result<(), Error> {
+        // Validate caller is admin using enhanced RBAC
+        rbac::require_admin_indirect_safe(&env, &admin)
+            .map_err(|_| Error::Unauthorized)?;
+        
+        // Use RBAC module for role assignment with mutual exclusion
+        rbac::assign_kyc_operator_role(&env, &admin, &new_operator)
+            .map_err(|_| Error::Unauthorized)?;
+
+        env.events().publish(
+            (Symbol::new(&env, "KycOperatorRoleAssigned"),),
+            (new_operator, admin, env.ledger().timestamp()),
+        );
+
+        Ok(())
+    }
+
+    /// Enhanced admin check for internal calls (Issue #179)
+    pub fn admin_internal_operation(env: Env, admin: Address, operation: String) -> Result<(), Error> {
+        // Use enhanced validation for internal calls
+        rbac::validate_internal_call(&env, &admin, &operation)
+            .map_err(|_| Error::Unauthorized)?;
+
+        Ok(())
     }
 
     /// Update proposal status after voting period ends

@@ -5,7 +5,7 @@ use soroban_sdk::{
     String, Symbol, Vec,
 };
 use stellai_lib::{
-    admin, audit, validation, ComplianceFinding, ComplianceReport, ComplianceStatus,
+    admin, audit, validation, rbac, ComplianceFinding, ComplianceReport, ComplianceStatus,
     ComplianceType, CredentialType, ReputationReview, ReputationScore, RiskLevel,
 };
 
@@ -635,7 +635,7 @@ impl ComplianceIntegrationContract {
 
     /// Initialise a KYC record for a subject DID (starts in Pending).
     pub fn kyc_init(env: Env, operator: Address, subject_did: String) -> Result<(), Error> {
-        admin::verify_admin(&env, &operator).map_err(|_| Error::Unauthorized)?;
+        rbac::require_kyc_operator_role(&env, &operator).map_err(|_| Error::Unauthorized)?;
         let key = (KYC_RECORDS, subject_did.clone());
         if env.storage().instance().has(&key) {
             return Err(Error::DuplicateReport);
@@ -668,7 +668,7 @@ impl ComplianceIntegrationContract {
         subject_did: String,
         new_status: KycStatus,
     ) -> Result<(), Error> {
-        admin::verify_admin(&env, &operator).map_err(|_| Error::Unauthorized)?;
+        rbac::require_kyc_operator_role(&env, &operator).map_err(|_| Error::Unauthorized)?;
         let key = (KYC_RECORDS, subject_did.clone());
         let mut record: KycRecord = env
             .storage()
@@ -725,13 +725,13 @@ impl ComplianceIntegrationContract {
     }
 
     /// Governance-approved override to reset a terminal KYC state.
-    /// Requires admin (governance role) and resets to Pending.
+    /// Requires governance role and resets to Pending.
     pub fn kyc_governance_override(
         env: Env,
         governance: Address,
         subject_did: String,
     ) -> Result<(), Error> {
-        admin::verify_admin(&env, &governance).map_err(|_| Error::Unauthorized)?;
+        rbac::require_governance_role(&env, &governance).map_err(|_| Error::Unauthorized)?;
         let key = (KYC_RECORDS, subject_did.clone());
         let mut record: KycRecord = env
             .storage()
