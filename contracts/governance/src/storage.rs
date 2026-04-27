@@ -1,5 +1,7 @@
-#![no_std]
-use soroban_sdk::{contracttype, Address, Env, Vec};
+
+use soroban_sdk::{contracttype, Address, Env, String, Val, Vec, Bytes};
+use soroban_sdk::xdr::ToXdr;
+
 
 use crate::types::{Delegation, DelegationSnapshot, MultisigApproval, MultisigConfig, ParameterRule, Proposal, StorageSnapshot, TimelockConfig, TimelockEntry, Vote, VoteEscrow, VotingMechanism, WaitlistProposal};
 
@@ -55,7 +57,7 @@ pub enum DataKey {
     /// Parameter validation rules
     ParameterRule(String), // parameter name -> rule
     /// Storage snapshot for integrity validation
-    StorageSnapshot(Address, Val), // contract_address, storage_key
+    StorageSnapshot(Address, Bytes),
 }
 
 /* ---------------- ADMIN ---------------- */
@@ -471,16 +473,16 @@ pub fn set_parameter_rule(env: &Env, rule: &ParameterRule) {
         .set(&DataKey::ParameterRule(rule.name.clone()), rule);
 }
 
-pub fn get_parameter_rule(env: &Env, parameter_name: &str) -> Option<ParameterRule> {
+pub fn get_parameter_rule(env: &Env, parameter_name: String) -> Option<ParameterRule> {
     env.storage()
         .instance()
-        .get(&DataKey::ParameterRule(String::from_str(env, parameter_name)))
+        .get(&DataKey::ParameterRule(parameter_name))
 }
 
-pub fn remove_parameter_rule(env: &Env, parameter_name: &str) {
+pub fn remove_parameter_rule(env: &Env, parameter_name: String) {
     env.storage()
         .instance()
-        .remove(&DataKey::ParameterRule(String::from_str(env, parameter_name)));
+        .remove(&DataKey::ParameterRule(parameter_name));
 }
 
 /* ---------------- STORAGE SNAPSHOTS ---------------- */
@@ -494,11 +496,11 @@ pub fn set_storage_snapshot(env: &Env, snapshot: &StorageSnapshot) {
 pub fn get_storage_snapshot(env: &Env, contract_address: &Address, storage_key: &Val) -> Option<StorageSnapshot> {
     env.storage()
         .instance()
-        .get(&DataKey::StorageSnapshot(contract_address.clone(), storage_key.clone()))
+        .get(&DataKey::StorageSnapshot(contract_address.clone(), storage_key.to_xdr(env)))
 }
 
 pub fn remove_storage_snapshot(env: &Env, contract_address: &Address, storage_key: &Val) {
     env.storage()
         .instance()
-        .remove(&DataKey::StorageSnapshot(contract_address.clone(), storage_key.clone()));
+        .remove(&DataKey::StorageSnapshot(contract_address.clone(), storage_key.to_xdr(env)));
 }

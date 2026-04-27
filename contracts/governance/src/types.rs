@@ -1,5 +1,5 @@
-#![no_std]
-use soroban_sdk::{contracttype, Address, String, Symbol, Val, Vec};
+
+use soroban_sdk::{contracttype, Address, String, Symbol, Val, Vec, Bytes};
 
 /// Vote types for proposals
 #[contracttype]
@@ -272,11 +272,11 @@ pub struct StorageSnapshot {
     /// Contract address
     pub contract_address: Address,
     /// Storage key
-    pub storage_key: Val,
+    pub storage_key: Bytes,
     /// Value before change
-    pub before_value: Option<Val>,
+    pub before_value: Option<Bytes>,
     /// Value after change
-    pub after_value: Option<Val>,
+    pub after_value: Option<Bytes>,
     /// Timestamp of snapshot
     pub timestamp: u64,
 }

@@ -1,16 +1,14 @@
 #![cfg(test)]
+extern crate std;
 extern crate alloc;
 
 use super::*;
-use soroban_sdk::{
-    contract, contractimpl, contracttype,
-    testutils::{Address as _, Ledger, LedgerInfo},
-    token, Address, Env, String, Symbol, Val, Vec,
-};
+use soroban_sdk::{contract, contractimpl, contracttype, vec, testutils::{Address as _, Ledger, LedgerInfo}, token, Address, Env, String, Symbol, Val, Vec};
 
 // Mock token contract for testing with mint functionality
 #[contract]
 pub struct MockToken;
+
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -131,6 +129,7 @@ fn setup_governance(
         &None::<u64>,
         &None::<u64>,
         &None::<u128>,
+        &None::<VotingMechanism>,
     );
 
     (gov_client, admin, governance_token, mock_token_client)
@@ -169,7 +168,7 @@ fn test_voting_power_with_escrow() {
     e.mock_all_auths();
     e.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 10,
         network_id: Default::default(),
         base_reserve: 10,
@@ -200,7 +199,7 @@ fn test_voting_power_with_delegation() {
 
     e.mock_all_auths();
     token_client.mint(&delegator, &10000);
-    gov_client.delegate_voting_power(&delegator, &delegatee, &5000);
+    gov_client.delegate_voting_power(&delegator, &delegatee, &5000, &None);
 
     let delegator_power = gov_client.get_vote_power(&delegator);
     let delegatee_power = gov_client.get_vote_power(&delegatee);
@@ -215,7 +214,7 @@ fn test_voting_power_combined() {
     e.mock_all_auths();
     e.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 10,
         network_id: Default::default(),
         base_reserve: 10,
@@ -234,7 +233,7 @@ fn test_voting_power_combined() {
     token_client.mint(&user2, &10000);
 
     gov_client.lock_for_escrow(&user1, &5000, &26); // 26 weeks = 3x
-    gov_client.delegate_voting_power(&user2, &user1, &5000);
+    gov_client.delegate_voting_power(&user2, &user1, &5000, &None);
 
     let power = gov_client.get_vote_power(&user1);
     // Base: 15000 (20000 - 5000 locked)
@@ -252,7 +251,7 @@ fn test_voting_power_escrow_expired() {
     e.mock_all_auths();
     e.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 10,
         network_id: Default::default(),
         base_reserve: 10,
@@ -269,7 +268,7 @@ fn test_voting_power_escrow_expired() {
 
     e.ledger().set(LedgerInfo {
         timestamp: 1000 + (4 * 7 * 24 * 60 * 60) + 1,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 20,
         network_id: Default::default(),
         base_reserve: 10,
@@ -297,7 +296,7 @@ fn test_simple_delegation() {
 
     e.mock_all_auths();
     token_client.mint(&delegator, &10000);
-    gov_client.delegate_voting_power(&delegator, &delegatee, &5000);
+    gov_client.delegate_voting_power(&delegator, &delegatee, &5000, &None);
 
     let delegation = gov_client.get_delegation(&delegator);
     assert!(delegation.is_some());
@@ -320,8 +319,8 @@ fn test_re_delegation() {
     token_client.mint(&alice, &10000);
     token_client.mint(&bob, &5000);
 
-    gov_client.delegate_voting_power(&alice, &bob, &5000);
-    gov_client.delegate_voting_power(&bob, &charlie, &3000);
+    gov_client.delegate_voting_power(&alice, &bob, &5000, &None);
+    gov_client.delegate_voting_power(&bob, &charlie, &3000, &None);
 
     let bob_power = gov_client.get_vote_power(&bob);
     let charlie_power = gov_client.get_vote_power(&charlie);
@@ -342,8 +341,8 @@ fn test_change_delegation() {
 
     e.mock_all_auths();
     token_client.mint(&delegator, &10000);
-    gov_client.delegate_voting_power(&delegator, &delegatee1, &5000);
-    gov_client.delegate_voting_power(&delegator, &delegatee2, &5000);
+    gov_client.delegate_voting_power(&delegator, &delegatee1, &5000, &None);
+    gov_client.delegate_voting_power(&delegator, &delegatee2, &5000, &None);
 
     let delegation = gov_client.get_delegation(&delegator);
     assert_eq!(delegation.unwrap().delegatee, delegatee2);
@@ -360,7 +359,7 @@ fn test_undelegate() {
 
     e.mock_all_auths();
     token_client.mint(&delegator, &10000);
-    gov_client.delegate_voting_power(&delegator, &delegatee, &5000);
+    gov_client.delegate_voting_power(&delegator, &delegatee, &5000, &None);
     gov_client.undelegate_voting_power(&delegator);
 
     let delegation = gov_client.get_delegation(&delegator);
@@ -376,7 +375,7 @@ fn test_delegate_to_self() {
 
     let user = Address::generate(&e);
     token_client.mint(&user, &10000);
-    gov_client.delegate_voting_power(&user, &user, &5000);
+    gov_client.delegate_voting_power(&user, &user, &5000, &None);
 }
 
 // ============================================================================
@@ -389,7 +388,7 @@ fn test_escrow_multipliers() {
     e.mock_all_auths();
     e.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 10,
         network_id: Default::default(),
         base_reserve: 10,
@@ -428,7 +427,7 @@ fn test_escrow_add_to_existing() {
     e.mock_all_auths();
     e.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 10,
         network_id: Default::default(),
         base_reserve: 10,
@@ -455,7 +454,7 @@ fn test_unlock_escrow() {
     e.mock_all_auths();
     e.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 10,
         network_id: Default::default(),
         base_reserve: 10,
@@ -474,7 +473,7 @@ fn test_unlock_escrow() {
     let lock_duration = 4 * 7 * 24 * 60 * 60;
     e.ledger().set(LedgerInfo {
         timestamp: 1000 + lock_duration + 1,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 20,
         network_id: Default::default(),
         base_reserve: 10,
@@ -495,7 +494,7 @@ fn test_unlock_before_expiry() {
     e.mock_all_auths();
     e.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 10,
         network_id: Default::default(),
         base_reserve: 10,
@@ -522,7 +521,7 @@ fn test_full_proposal_lifecycle() {
     e.mock_all_auths();
     e.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 10,
         network_id: Default::default(),
         base_reserve: 10,
@@ -560,7 +559,7 @@ fn test_full_proposal_lifecycle() {
         &voting_period,
         &ProposalType::ParameterChange,
         &Some(params),
-        &Some(target_contract),
+        &Some(target_contract.clone()),
         &Some(Symbol::new(&e, "update_parameter")),
         &None::<Vec<Val>>,
     );
@@ -575,7 +574,7 @@ fn test_full_proposal_lifecycle() {
 
     e.ledger().set(LedgerInfo {
         timestamp: 1000 + voting_period + 1,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 20,
         network_id: Default::default(),
         base_reserve: 10,
@@ -607,7 +606,7 @@ fn test_no_double_voting() {
     e.mock_all_auths();
     e.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 10,
         network_id: Default::default(),
         base_reserve: 10,
@@ -647,7 +646,7 @@ fn test_vote_before_start() {
     e.mock_all_auths();
     e.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 10,
         network_id: Default::default(),
         base_reserve: 10,
@@ -678,7 +677,7 @@ fn test_vote_before_start() {
 
     e.ledger().set(LedgerInfo {
         timestamp: 999,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 9,
         network_id: Default::default(),
         base_reserve: 10,
@@ -697,7 +696,7 @@ fn test_vote_after_end() {
     e.mock_all_auths();
     e.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 10,
         network_id: Default::default(),
         base_reserve: 10,
@@ -729,7 +728,7 @@ fn test_vote_after_end() {
 
     e.ledger().set(LedgerInfo {
         timestamp: 1000 + voting_period + 1,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 20,
         network_id: Default::default(),
         base_reserve: 10,
@@ -748,7 +747,7 @@ fn test_vote_without_power() {
     e.mock_all_auths();
     e.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 10,
         network_id: Default::default(),
         base_reserve: 10,
@@ -789,7 +788,7 @@ fn test_execute_parameter_change_proposal() {
     e.mock_all_auths();
     e.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 10,
         network_id: Default::default(),
         base_reserve: 10,
@@ -822,7 +821,7 @@ fn test_execute_parameter_change_proposal() {
         &voting_period,
         &ProposalType::ParameterChange,
         &Some(params),
-        &Some(target_contract),
+        &Some(target_contract.clone()),
         &Some(Symbol::new(&e, "update_parameter")),
         &None::<Vec<Val>>,
     );
@@ -831,7 +830,7 @@ fn test_execute_parameter_change_proposal() {
 
     e.ledger().set(LedgerInfo {
         timestamp: 1000 + voting_period + 1,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 20,
         network_id: Default::default(),
         base_reserve: 10,
@@ -855,7 +854,7 @@ fn test_execute_parameter_change_proposal_cannot_run_twice() {
     e.mock_all_auths();
     e.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 10,
         network_id: Default::default(),
         base_reserve: 10,
@@ -888,7 +887,7 @@ fn test_execute_parameter_change_proposal_cannot_run_twice() {
         &voting_period,
         &ProposalType::ParameterChange,
         &Some(params),
-        &Some(target_contract),
+        &Some(target_contract.clone()),
         &Some(Symbol::new(&e, "update_parameter")),
         &None::<Vec<Val>>,
     );
@@ -897,7 +896,7 @@ fn test_execute_parameter_change_proposal_cannot_run_twice() {
 
     e.ledger().set(LedgerInfo {
         timestamp: 1000 + voting_period + 1,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 20,
         network_id: Default::default(),
         base_reserve: 10,
@@ -930,7 +929,7 @@ fn test_execute_before_passing() {
     e.mock_all_auths();
     e.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 10,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1021,7 +1020,7 @@ fn test_queue_parameter_update() {
     e.mock_all_auths();
     e.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 10,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1056,7 +1055,7 @@ fn test_queue_parameter_update() {
         &(7 * 24 * 60 * 60),
         &ProposalType::ParameterChange,
         &Some(params),
-        &Some(target_contract),
+        &Some(target_contract.clone()),
         &Some(Symbol::new(&e, "update_parameter")),
         &None::<Vec<Val>>,
     );
@@ -1066,7 +1065,7 @@ fn test_queue_parameter_update() {
 
     e.ledger().set(LedgerInfo {
         timestamp: 1000 + (7 * 24 * 60 * 60) + 1,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 20,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1079,15 +1078,15 @@ fn test_queue_parameter_update() {
 
     // Queue for timelock execution
     let mut args = Vec::new(&e);
-    args.push_back(String::from_str(&e, "test_param").into());
-    args.push_back(String::from_str(&e, "test_value").into());
+    args.push_back(Val::from(String::from_str(&e, "test_param")).into());
+    args.push_back(Val::from(String::from_str(&e, "test_value")).into());
 
     let entry_id = gov_client.queue_parameter_update(
         &proposer,
         &proposal_id,
-        &target_contract,
+        &target_contract ,
         &Symbol::new(&e, "update_parameter"),
-        args,
+         &args,
         &None::<u64>, // Use default delay
     );
 
@@ -1095,7 +1094,7 @@ fn test_queue_parameter_update() {
 
     let entry = gov_client.get_timelock_entry(&entry_id).unwrap();
     assert_eq!(entry.proposal_id, proposal_id);
-    assert_eq!(entry.target_contract, target_contract);
+    assert_eq!(entry.target_contract, target_contract.clone());
     assert!(!entry.executed);
     assert!(!entry.cancelled);
     assert_eq!(entry.queued_by, proposer);
@@ -1108,7 +1107,7 @@ fn test_execute_before_delay() {
     e.mock_all_auths();
     e.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 10,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1143,7 +1142,7 @@ fn test_execute_before_delay() {
         &(7 * 24 * 60 * 60),
         &ProposalType::ParameterChange,
         &Some(params),
-        &Some(target_contract),
+        &Some(target_contract.clone()),
         &Some(Symbol::new(&e, "update_parameter")),
         &None::<Vec<Val>>,
     );
@@ -1152,7 +1151,7 @@ fn test_execute_before_delay() {
 
     e.ledger().set(LedgerInfo {
         timestamp: 1000 + (7 * 24 * 60 * 60) + 1,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 20,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1165,15 +1164,15 @@ fn test_execute_before_delay() {
 
     // Queue and try to execute immediately (should fail)
     let mut args = Vec::new(&e);
-    args.push_back(String::from_str(&e, "test_param").into());
-    args.push_back(String::from_str(&e, "test_value").into());
+    args.push_back(Val::from(String::from_str(&e, "test_param")).into());
+    args.push_back(Val::from(String::from_str(&e, "test_value")).into());
 
     let entry_id = gov_client.queue_parameter_update(
         &proposer,
         &proposal_id,
-        &target_contract,
+        &target_contract ,
         &Symbol::new(&e, "update_parameter"),
-        args,
+         &args,
         &Some(120), // 2 minutes delay
     );
 
@@ -1188,7 +1187,7 @@ fn test_execute_after_delay() {
     e.mock_all_auths();
     e.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 10,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1223,7 +1222,7 @@ fn test_execute_after_delay() {
         &(7 * 24 * 60 * 60),
         &ProposalType::ParameterChange,
         &Some(params),
-        &Some(target_contract),
+        &Some(target_contract.clone()),
         &Some(Symbol::new(&e, "update_parameter")),
         &None::<Vec<Val>>,
     );
@@ -1232,7 +1231,7 @@ fn test_execute_after_delay() {
 
     e.ledger().set(LedgerInfo {
         timestamp: 1000 + (7 * 24 * 60 * 60) + 1,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 20,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1245,22 +1244,22 @@ fn test_execute_after_delay() {
 
     // Queue with short delay
     let mut args = Vec::new(&e);
-    args.push_back(String::from_str(&e, "test_param").into());
-    args.push_back(String::from_str(&e, "test_value").into());
+    args.push_back(Val::from(String::from_str(&e, "test_param")).into());
+    args.push_back(Val::from(String::from_str(&e, "test_value")).into());
 
     let entry_id = gov_client.queue_parameter_update(
         &proposer,
         &proposal_id,
-        &target_contract,
+        &target_contract ,
         &Symbol::new(&e, "update_parameter"),
-        args,
+         &args,
         &Some(60), // 1 minute delay
     );
 
     // Wait for delay to pass
     e.ledger().set(LedgerInfo {
         timestamp: 1000 + (7 * 24 * 60 * 60) + 61, // 1 minute later
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 30,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1283,7 +1282,7 @@ fn test_cancel_queued_update() {
     e.mock_all_auths();
     e.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 10,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1317,7 +1316,7 @@ fn test_cancel_queued_update() {
         &(7 * 24 * 60 * 60),
         &ProposalType::ParameterChange,
         &Some(params),
-        &Some(target_contract),
+        &Some(target_contract.clone()),
         &Some(Symbol::new(&e, "update_parameter")),
         &None::<Vec<Val>>,
     );
@@ -1326,7 +1325,7 @@ fn test_cancel_queued_update() {
 
     e.ledger().set(LedgerInfo {
         timestamp: 1000 + (7 * 24 * 60 * 60) + 1,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 20,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1339,15 +1338,15 @@ fn test_cancel_queued_update() {
 
     // Queue update
     let mut args = Vec::new(&e);
-    args.push_back(String::from_str(&e, "test_param").into());
-    args.push_back(String::from_str(&e, "test_value").into());
+    args.push_back(Val::from(String::from_str(&e, "test_param")).into());
+    args.push_back(Val::from(String::from_str(&e, "test_value")).into());
 
     let entry_id = gov_client.queue_parameter_update(
         &proposer,
         &proposal_id,
-        &target_contract,
+        &target_contract ,
         &Symbol::new(&e, "update_parameter"),
-        args,
+         &args,
         &Some(3600),
     );
 
@@ -1379,9 +1378,9 @@ fn test_parameter_rule_validation() {
         param_type: ParameterType::U64,
     };
 
-    gov_client.set_parameter_rule(&admin, rule);
+    gov_client.set_parameter_rule(&admin, &rule);
 
-    let retrieved_rule = gov_client.get_parameter_rule(String::from_str(&e, "fee_rate")).unwrap();
+    let retrieved_rule = gov_client.get_parameter_rule(&String::from_str(&e, "fee_rate")).unwrap();
     assert_eq!(retrieved_rule.name, String::from_str(&e, "fee_rate"));
     assert_eq!(retrieved_rule.param_type, ParameterType::U64);
     assert!(retrieved_rule.requires_timelock);
@@ -1403,24 +1402,24 @@ fn test_safe_parameter_change() {
         param_type: ParameterType::U64,
     };
 
-    gov_client.set_parameter_rule(&admin, rule);
+    gov_client.set_parameter_rule(&admin, &rule);
 
     // Execute safe parameter change
     let target_contract = e.register_contract(None, MockTargetContract);
     let executor = Address::generate(&e);
-    let storage_key = String::from_str(&e, "max_withdrawal").into();
+    let storage_key: Val = Val::from(String::from_str(&e, "max_withdrawal"));
 
     gov_client.execute_parameter_change_safe(
         &executor,
-        &target_contract,
-        String::from_str(&e, "max_withdrawal"),
-        String::from_str(&e, "5000"),
-        storage_key,
+        &target_contract ,
+        &String::from_str(&e, "max_withdrawal"),
+        &String::from_str(&e, "5000"),
+        &storage_key,
     );
 
     // Verify storage snapshot was created
-    let snapshot = gov_client.get_storage_snapshot(&target_contract, storage_key).unwrap();
-    assert_eq!(snapshot.contract_address, target_contract);
+    let snapshot = gov_client.get_storage_snapshot(&target_contract , &storage_key).unwrap();
+    assert_eq!(snapshot.contract_address, target_contract.clone());
     assert!(!snapshot.before_value.is_some() || !snapshot.after_value.is_some()); // At least one should be set
 }
 
@@ -1444,7 +1443,7 @@ fn test_batch_parameter_updates() {
         name: String::from_str(&e, "param2"),
         min_value: None,
         max_value: None,
-        allowed_values: Some(vec![
+        allowed_values: Some(vec![&e, 
             String::from_str(&e, "enabled"),
             String::from_str(&e, "disabled"),
         ]),
@@ -1452,33 +1451,33 @@ fn test_batch_parameter_updates() {
         param_type: ParameterType::String,
     };
 
-    gov_client.set_parameter_rule(&admin, rule1);
-    gov_client.set_parameter_rule(&admin, rule2);
+    gov_client.set_parameter_rule(&admin, &rule1);
+    gov_client.set_parameter_rule(&admin, &rule2);
 
     // Create batch updates
     let mut updates = Vec::new(&e);
     updates.push_back((
         String::from_str(&e, "param1"),
         String::from_str(&e, "500"),
-        String::from_str(&e, "param1").into(),
+        Val::from(String::from_str(&e, "param1")),
     ));
     updates.push_back((
         String::from_str(&e, "param2"),
         String::from_str(&e, "enabled"),
-        String::from_str(&e, "param2").into(),
+        Val::from(String::from_str(&e, "param2")),
     ));
 
     let executor = Address::generate(&e);
-    gov_client.execute_parameter_batch_safe(&executor, updates);
+    gov_client.execute_parameter_batch_safe(&executor, &updates);
 
     // Verify snapshots were created for both parameters
     let snapshot1 = gov_client.get_storage_snapshot(
         &e.current_contract_address(),
-        String::from_str(&e, "param1").into(),
+        &Val::from(String::from_str(&e, "param1")),
     );
     let snapshot2 = gov_client.get_storage_snapshot(
         &e.current_contract_address(),
-        String::from_str(&e, "param2").into(),
+        &Val::from(String::from_str(&e, "param2")),
     );
 
     assert!(snapshot1.is_some());
@@ -1502,19 +1501,19 @@ fn test_parameter_validation_min_violation() {
         param_type: ParameterType::U64,
     };
 
-    gov_client.set_parameter_rule(&admin, rule);
+    gov_client.set_parameter_rule(&admin, &rule);
 
     // Try to set value below minimum
     let target_contract = e.register_contract(None, MockTargetContract);
     let executor = Address::generate(&e);
-    let storage_key = String::from_str(&e, "min_balance").into();
+    let storage_key = Val::from(String::from_str(&e, "min_balance"));
 
     gov_client.execute_parameter_change_safe(
         &executor,
-        &target_contract,
-        String::from_str(&e, "min_balance"),
-        String::from_str(&e, "500"), // Below minimum of 1000
-        storage_key,
+        &target_contract ,
+        &String::from_str(&e, "min_balance"),
+        &String::from_str(&e, "500"), // Below minimum of 1000
+        &storage_key,
     );
 }
 
@@ -1530,7 +1529,7 @@ fn test_parameter_validation_enum_violation() {
         name: String::from_str(&e, "status"),
         min_value: None,
         max_value: None,
-        allowed_values: Some(vec![
+        allowed_values: Some(vec![&e, 
             String::from_str(&e, "active"),
             String::from_str(&e, "inactive"),
         ]),
@@ -1538,19 +1537,19 @@ fn test_parameter_validation_enum_violation() {
         param_type: ParameterType::String,
     };
 
-    gov_client.set_parameter_rule(&admin, rule);
+    gov_client.set_parameter_rule(&admin, &rule);
 
     // Try to set value not in allowed list
     let target_contract = e.register_contract(None, MockTargetContract);
     let executor = Address::generate(&e);
-    let storage_key = String::from_str(&e, "status").into();
+    let storage_key = Val::from(String::from_str(&e, "status"));
 
     gov_client.execute_parameter_change_safe(
         &executor,
-        &target_contract,
-        String::from_str(&e, "status"),
-        String::from_str(&e, "pending"), // Not in allowed list
-        storage_key,
+        &target_contract ,
+        &String::from_str(&e, "status"),
+        &String::from_str(&e, "pending"), // Not in allowed list
+        &storage_key,
     );
 }
 
@@ -1571,19 +1570,19 @@ fn test_parameter_requires_timelock() {
         param_type: ParameterType::String,
     };
 
-    gov_client.set_parameter_rule(&admin, rule);
+    gov_client.set_parameter_rule(&admin, &rule);
 
     // Try to change parameter without timelock enabled
     let target_contract = e.register_contract(None, MockTargetContract);
     let executor = Address::generate(&e);
-    let storage_key = String::from_str(&e, "critical_param").into();
+    let storage_key = Val::from(String::from_str(&e, "critical_param"));
 
     gov_client.execute_parameter_change_safe(
         &executor,
-        &target_contract,
-        String::from_str(&e, "critical_param"),
-        String::from_str(&e, "new_value"),
-        storage_key,
+        &target_contract ,
+        &String::from_str(&e, "critical_param"),
+        &String::from_str(&e, "new_value"),
+        &storage_key,
     );
 }
 
@@ -1603,26 +1602,26 @@ fn test_verify_parameter_integrity() {
         param_type: ParameterType::String,
     };
 
-    gov_client.set_parameter_rule(&admin, rule);
+    gov_client.set_parameter_rule(&admin, &rule);
 
     // Execute parameter change
     let target_contract = e.register_contract(None, MockTargetContract);
     let executor = Address::generate(&e);
-    let storage_key = String::from_str(&e, "test_param").into();
+    let storage_key = Val::from(String::from_str(&e, "test_param"));
 
     gov_client.execute_parameter_change_safe(
         &executor,
-        &target_contract,
-        String::from_str(&e, "test_param"),
-        String::from_str(&e, "test_value"),
-        storage_key,
+        &target_contract ,
+        &String::from_str(&e, "test_param"),
+        &String::from_str(&e, "test_value"),
+        &storage_key,
     );
 
     // Verify integrity (should return true in test environment)
     let integrity_ok = gov_client.verify_parameter_integrity(
         &admin,
-        &target_contract,
-        storage_key,
+        &target_contract ,
+        &storage_key,
     );
     
     // In test environment, this may return false due to mock implementation
@@ -1640,7 +1639,7 @@ fn test_timelock_with_parameter_validation() {
     e.mock_all_auths();
     e.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 10,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1666,7 +1665,7 @@ fn test_timelock_with_parameter_validation() {
         param_type: ParameterType::U64,
     };
 
-    gov_client.set_parameter_rule(&admin, rule);
+    gov_client.set_parameter_rule(&admin, &rule);
 
     // Setup and pass proposal
     e.mock_all_auths();
@@ -1687,7 +1686,7 @@ fn test_timelock_with_parameter_validation() {
         &(7 * 24 * 60 * 60),
         &ProposalType::ParameterChange,
         &Some(params),
-        &Some(target_contract),
+        &Some(target_contract.clone()),
         &Some(Symbol::new(&e, "update_parameter")),
         &None::<Vec<Val>>,
     );
@@ -1696,7 +1695,7 @@ fn test_timelock_with_parameter_validation() {
 
     e.ledger().set(LedgerInfo {
         timestamp: 1000 + (7 * 24 * 60 * 60) + 1,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 20,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1709,22 +1708,22 @@ fn test_timelock_with_parameter_validation() {
 
     // Queue for timelock execution (should pass validation)
     let mut args = Vec::new(&e);
-    args.push_back(String::from_str(&e, "critical_fee").into());
-    args.push_back(String::from_str(&e, "500").into());
+    args.push_back(Val::from(String::from_str(&e, "critical_fee")).into());
+    args.push_back(Val::from(String::from_str(&e, "500")).into());
 
     let entry_id = gov_client.queue_parameter_update(
         &proposer,
         &proposal_id,
-        &target_contract,
+        &target_contract ,
         &Symbol::new(&e, "update_parameter"),
-        args,
+         &args,
         &Some(60),
     );
 
     // Wait for delay and execute
     e.ledger().set(LedgerInfo {
         timestamp: 1000 + (7 * 24 * 60 * 60) + 61,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 30,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1750,7 +1749,7 @@ fn test_many_proposals() {
     e.mock_all_auths();
     e.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 10,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1791,7 +1790,7 @@ fn test_many_voters() {
     e.mock_all_auths();
     e.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 10,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1840,7 +1839,7 @@ fn test_quorum_edge_case() {
     e.mock_all_auths();
     e.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 10,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1876,7 +1875,7 @@ fn test_quorum_edge_case() {
 
     e.ledger().set(LedgerInfo {
         timestamp: 1000 + voting_period + 1,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 20,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1897,7 +1896,7 @@ fn test_approval_threshold_edge_case() {
     e.mock_all_auths();
     e.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 10,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1936,7 +1935,7 @@ fn test_approval_threshold_edge_case() {
 
     e.ledger().set(LedgerInfo {
         timestamp: 1000 + voting_period + 1,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 20,
         network_id: Default::default(),
         base_reserve: 10,
@@ -1967,7 +1966,7 @@ fn test_vote_weight_calculation_edge_cases() {
     e.mock_all_auths();
     e.ledger().set(LedgerInfo {
         timestamp: 1000,
-        protocol_version: 20,
+        protocol_version: 22,
         sequence_number: 10,
         network_id: Default::default(),
         base_reserve: 10,
@@ -2015,6 +2014,7 @@ fn test_multisig_initialization() {
 #[test]
 fn test_multisig_approval_tracking() {
     let e = Env::default();
+    e.ledger().with_mut(|li| li.protocol_version = 22);
     let (gov_client, admin, governance_token, token_client) = setup_governance(&e);
 
     // Setup multisig
@@ -2030,6 +2030,7 @@ fn test_multisig_approval_tracking() {
 
     // Create a proposal
     token_client.mint(&admin, &10000);
+    gov_client.update_circulating_voting_power(&admin, &10000);
     let proposal_id = gov_client.create_proposal(
         &admin,
         &String::from_str(&e, "Test"),
@@ -2044,10 +2045,152 @@ fn test_multisig_approval_tracking() {
         &None,
         &None,
     );
+    
+    // Pass the proposal
+    gov_client.cast_vote(&admin, &proposal_id, &VoteType::For);
+    e.ledger().with_mut(|li| li.timestamp += 7 * 24 * 60 * 60 + 1);
+    gov_client.update_proposal_status(&proposal_id);
 
     // Signer1 approves
     gov_client.approve_proposal_execution(&signer1, &proposal_id);
 
     let approval = gov_client.get_multisig_approval_status(&proposal_id);
     assert!(approval.is_some());
+}
+
+#[test]
+#[should_panic(expected = "Insufficient multisig approvals")]
+fn test_execute_fails_if_multisig_threshold_not_met() {
+    let e = Env::default();
+    e.ledger().with_mut(|li| li.protocol_version = 22);
+    e.mock_all_auths();
+    let (gov_client, admin, governance_token, token_client) = setup_governance(&e);
+    let target_contract = e.register_contract(None, MockTargetContract);
+
+    // Setup multisig with threshold 2
+    let signer1 = Address::generate(&e);
+    let signer2 = Address::generate(&e);
+    let mut signers = Vec::new(&e);
+    signers.push_back(signer1.clone());
+    signers.push_back(signer2.clone());
+    gov_client.init_multisig(&admin, &2, &signers, &86400);
+
+    // Create and pass a proposal
+    token_client.mint(&admin, &10000);
+    gov_client.update_circulating_voting_power(&admin, &10000);
+    let proposal_id = gov_client.create_proposal(
+        &admin,
+        &String::from_str(&e, "Test"),
+        &String::from_str(&e, "Desc"),
+        &(7 * 24 * 60 * 60),
+        &ProposalType::ParameterChange,
+        &Some(ProposalParameters {
+            name: String::from_str(&e, "param"),
+            value: String::from_str(&e, "value"),
+        }),
+        &Some(target_contract), 
+        &Some(Symbol::new(&e, "update_parameter")), 
+        &None,
+    );
+    gov_client.cast_vote(&admin, &proposal_id, &VoteType::For);
+    
+    // Move time forward to end voting
+    e.ledger().with_mut(|li| li.timestamp += 7 * 24 * 60 * 60 + 1);
+    gov_client.update_proposal_status(&proposal_id);
+
+    // Only 1 approval (threshold is 2)
+    gov_client.approve_proposal_execution(&signer1, &proposal_id);
+
+    // Attempt execution - should panic
+    gov_client.execute_proposal(&admin, &proposal_id);
+}
+
+#[test]
+fn test_execute_succeeds_with_proper_multisig() {
+    let e = Env::default();
+    e.ledger().with_mut(|li| li.protocol_version = 22);
+    e.mock_all_auths();
+    let (gov_client, admin, governance_token, token_client) = setup_governance(&e);
+    let target_contract = e.register_contract(None, MockTargetContract);
+
+    // Setup multisig
+    let signer1 = Address::generate(&e);
+    let signer2 = Address::generate(&e);
+    let mut signers = Vec::new(&e);
+    signers.push_back(signer1.clone());
+    signers.push_back(signer2.clone());
+    gov_client.init_multisig(&admin, &2, &signers, &86400);
+
+    // Create and pass a proposal
+    token_client.mint(&admin, &10000);
+    gov_client.update_circulating_voting_power(&admin, &10000);
+    let proposal_id = gov_client.create_proposal(
+        &admin,
+        &String::from_str(&e, "Test"),
+        &String::from_str(&e, "Desc"),
+        &(7 * 24 * 60 * 60),
+        &ProposalType::ParameterChange,
+        &Some(ProposalParameters {
+            name: String::from_str(&e, "param"),
+            value: String::from_str(&e, "value"),
+        }),
+        &Some(target_contract), 
+        &Some(Symbol::new(&e, "update_parameter")), 
+        &None,
+    );
+    gov_client.cast_vote(&admin, &proposal_id, &VoteType::For);
+    
+    e.ledger().with_mut(|li| li.timestamp += 7 * 24 * 60 * 60 + 1);
+    gov_client.update_proposal_status(&proposal_id);
+
+    // Both approve
+    gov_client.approve_proposal_execution(&signer1, &proposal_id);
+    gov_client.approve_proposal_execution(&signer2, &proposal_id);
+
+    // Attempt execution - should succeed
+    gov_client.execute_proposal(&admin, &proposal_id);
+    
+    let proposal = gov_client.get_proposal(&proposal_id).unwrap();
+    assert_eq!(proposal.status, ProposalStatus::Executed);
+}
+
+#[test]
+#[should_panic(expected = "Already approved by this signer")]
+fn test_prevent_duplicate_signatures() {
+    let e = Env::default();
+    e.ledger().with_mut(|li| li.protocol_version = 22);
+    e.mock_all_auths();
+    let (gov_client, admin, governance_token, token_client) = setup_governance(&e);
+    let target_contract = e.register_contract(None, MockTargetContract);
+
+    let signer1 = Address::generate(&e);
+    let signer2 = Address::generate(&e);
+    let mut signers = Vec::new(&e);
+    signers.push_back(signer1.clone());
+    signers.push_back(signer2.clone());
+    gov_client.init_multisig(&admin, &2, &signers, &86400);
+
+    token_client.mint(&admin, &10000);
+    gov_client.update_circulating_voting_power(&admin, &10000);
+    let proposal_id = gov_client.create_proposal(
+        &admin,
+        &String::from_str(&e, "Test"),
+        &String::from_str(&e, "Desc"),
+        &(7 * 24 * 60 * 60),
+        &ProposalType::ParameterChange,
+        &Some(ProposalParameters {
+            name: String::from_str(&e, "param"),
+            value: String::from_str(&e, "value"),
+        }),
+        &Some(target_contract), 
+        &Some(Symbol::new(&e, "update_parameter")), 
+        &None,
+    );
+    
+    gov_client.cast_vote(&admin, &proposal_id, &VoteType::For);
+    e.ledger().with_mut(|li| li.timestamp += 7 * 24 * 60 * 60 + 1);
+    gov_client.update_proposal_status(&proposal_id);
+
+    gov_client.approve_proposal_execution(&signer1, &proposal_id);
+    gov_client.approve_proposal_execution(&signer1, &proposal_id); // Should panic
 }
