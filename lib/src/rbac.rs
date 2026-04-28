@@ -152,12 +152,12 @@ pub fn require_admin_indirect_safe(env: &Env, caller: &Address) -> Result<(), Co
 pub fn validate_internal_call(
     env: &Env,
     caller: &Address,
-    function_name: &str,
+    function_name: &Symbol,
 ) -> Result<(), ContractError> {
     // Log the access attempt for audit trail
     env.events().publish(
         (Symbol::new(env, "access_check"),),
-        (caller.clone(), function_name, env.ledger().timestamp()),
+        (caller.clone(), function_name.clone(), env.ledger().timestamp()),
     );
     
     // Always revalidate caller role from storage
