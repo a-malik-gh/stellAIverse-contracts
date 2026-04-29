@@ -10,8 +10,24 @@ pub struct ReferralInfo {
     pub referred_at: u64,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReferralStats {
+    pub direct_referrals: u32,
+    pub indirect_referrals: u32,
+    pub total_earnings: i128,
+    pub pending_rewards: i128,
+}
+
 #[contract]
 pub struct ReferralRewards;
+
+const TIER1_VOLUME: i128 = 1000;
+const TIER2_VOLUME: i128 = 10000;
+const TIER1_RATE: i128 = 5; // 5%
+const TIER2_RATE: i128 = 7;
+const TIER3_RATE: i128 = 10;
+const INDIRECT_MULTIPLIER: i128 = 50; // 50% of direct
 
 #[contractimpl]
 impl ReferralRewards {
@@ -29,14 +45,26 @@ impl ReferralRewards {
 
     /// Register a new referral.
     pub fn register_referral(
-        env: Env,
-        referred: Address,
-        referrer: Address,
-    ) -> Result<(), ContractError> {
-        referred.require_auth();
+        env: Env,Self-referral
+        }
 
-        if referred == referrer {
-            return Err(ContractError::SameAddressTransfer); // Use appropriate error
+        // Check for circular referral
+        let referrer_referrer_key = (Symbol::new(&env, "ref"), referrer.clone());
+        if let Some(referrer_info) = env.storage().instance().get::<_, ReferralInfo>(&referrer_referrer_key) {
+            if referrer_info.referrer == referred {
+                return Err(ContractError::InvalidAgentId); // Circular: referred is referrer of referrer
+            }
+        }
+
+        let referred_referrals_key = (Symbol::new(&env, "referrals"), referred.clone());
+        if let Some(referred_referrals) = env.storage().instance().get::<_, Vec<Address>>(&referred_referrals_key) {
+            for i in 0..referred_referrals.len() {
+                if let Some(r) = referred_referrals.get(i) {
+                    if r == referrer {
+                        return Err(ContractError::InvalidAgentId); // Circular: referrer is referred by referred
+                    }
+                }
+            }
         }
 
         let key = (Symbol::new(&env, "ref"), referred.clone());
@@ -49,6 +77,19 @@ impl ReferralRewards {
             referred_at: env.ledger().timestamp(),
         };
 
+        env.storage().instance().set(&key, &info);
+
+        // Update referrer's count
+        let count_key = (Symbol::new(&env, "count"), referrer.clone());
+        let mut count: u32 = env.storage().instance().get(&count_key).unwrap_or(0);
+        count += 1;
+        env.storage().instance().set(&count_key, &count);
+
+        // Add to referrer's referrals list
+        let referrals_key = (Symbol::new(&env, "referrals"), referrer.clone());
+        let mut referrals: Vec<Address> = env.storage().instance().get(&referrals_key).unwrap_or(Vec::new(&env));
+        referrals.push_back(referred.clone());
+        env.storage().instance().set(&referrals_key, &referrals
         env.storage().instance().set(&key, &info);
 
         // Update referrer's count
@@ -88,6 +129,12 @@ impl ReferralRewards {
         let mut balance: i128 = env.storage().instance().get(&reward_key).unwrap_or(0);
         balance += amount;
         env.storage().instance().set(&reward_key, &balance);
+
+        // Update total earnings
+        let total_key = (Symbol::new(&env, "total"), referrer.clone());
+        let mut total: i128 = env.storage().instance().get(&total_key).unwrap_or(0);
+        total += amount;
+        env.storage().instance().set(&total_key, &total);
 
         env.events().publish(
             (
@@ -134,6 +181,96 @@ impl ReferralRewards {
     pub fn get_pending_rewards(env: Env, referrer: Address) -> i128 {
         let reward_key = (Symbol::new(&env, "reward"), referrer);
         env.storage().instance().get(&reward_key).unwrap_or(0)
+    }
+
+    /// Get commission rate based on trading volume.
+    fn get_commission_rate(volume: i128) -> i128 {
+        if volume < TIER1_VOLUME {
+            TIER1_RATE
+        } else if volume < TIER2_VOLUME {
+            TIER2_RATE
+        } else {
+            TIER3_RATE
+        }
+    }
+
+    /// Distribute commission on fee collection (automatic).
+    pub fn distribute_commission(
+        env: Env,
+        caller: Address,
+        referee: Address,
+        volume: i128,
+        fee_amount: i128,
+    ) -> Result<(), ContractError> {
+        caller.require_auth();
+        admin::verify_admin(&env, &caller)?;
+
+        let rate = Self::get_commission_rate(volume);
+        let commission = fee_amount * rate / 100;
+
+        let ref_key = (Symbol::new(&env, "ref"), referee.clone());
+        if let Some(info) = env.storage().instance().get::<_, ReferralInfo>(&ref_key) {
+            let direct_referrer = info.referrer.clone();
+
+            // Add to direct referrer
+            let reward_key = (Symbol::new(&env, "reward"), direct_referrer.clone());
+            let mut balance: i128 = env.storage().instance().get(&reward_key).unwrap_or(0);
+            balance += commission;
+            env.storage().instance().set(&reward_key, &balance);
+
+            // Update total for direct
+            let total_key = (Symbol::new(&env, "total"), direct_referrer.clone());
+            let mut total: i128 = env.storage().instance().get(&total_key).unwrap_or(0);
+            total += commission;
+            env.storage().instance().set(&total_key, &total);
+
+            // Indirect referrer
+            let indirect_ref_key = (Symbol::new(&env, "ref"), direct_referrer.clone());
+            if let Some(indirect_info) = env.storage().instance().get::<_, ReferralInfo>(&indirect_ref_key) {
+                let indirect_referrer = indirect_info.referrer.clone();
+                let indirect_commission = commission * INDIRECT_MULTIPLIER / 100;
+
+                let indirect_reward_key = (Symbol::new(&env, "reward"), indirect_referrer.clone());
+                let mut indirect_balance: i128 = env.storage().instance().get(&indirect_reward_key).unwrap_or(0);
+                indirect_balance += indirect_commission;
+                env.storage().instance().set(&indirect_reward_key, &indirect_balance);
+
+                // Update total for indirect
+                let indirect_total_key = (Symbol::new(&env, "total"), indirect_referrer.clone());
+                let mut indirect_total: i128 = env.storage().instance().get(&indirect_total_key).unwrap_or(0);
+                indirect_total += indirect_commission;
+                env.storage().instance().set(&indirect_total_key, &indirect_total);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Get referral stats for a user.
+    pub fn get_referral_stats(env: Env, user: Address) -> ReferralStats {
+        let direct = Self::get_referral_count(env.clone(), user.clone());
+
+        let referrals_key = (Symbol::new(&env, "referrals"), user.clone());
+        let referrals: Vec<Address> = env.storage().instance().get(&referrals_key).unwrap_or(Vec::new(&env));
+
+        let mut indirect = 0u32;
+        for i in 0..referrals.len() {
+            if let Some(r) = referrals.get(i) {
+                indirect += Self::get_referral_count(env.clone(), r);
+            }
+        }
+
+        let total_earnings_key = (Symbol::new(&env, "total"), user.clone());
+        let total_earnings: i128 = env.storage().instance().get(&total_earnings_key).unwrap_or(0);
+
+        let pending = Self::get_pending_rewards(env, user);
+
+        ReferralStats {
+            direct_referrals: direct,
+            indirect_referrals: indirect,
+            total_earnings,
+            pending_rewards: pending,
+        }
     }
 }
 

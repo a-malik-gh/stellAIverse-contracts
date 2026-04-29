@@ -274,6 +274,174 @@ impl MetricsAggregator {
     }
 
     // ========================================================================
+    // PORTFOLIO ANALYTICS
+    // ========================================================================
+
+    /// Record a portfolio snapshot for a user. Admin-only.
+    pub fn record_portfolio_snapshot(
+        env: Env,
+        caller: Address,
+        user: Address,
+        value: i128,
+        realized_pnl: i128,
+        unrealized_pnl: i128,
+    ) {
+        caller.require_auth();
+        Self::verify_admin(&env, &caller);
+
+        let snapshot = PortfolioSnapshot {
+            timestamp: env.ledger().timestamp(),
+            value,
+            realized_pnl,
+            unrealized_pnl,
+        };
+
+        let key = (Symbol::new(&env, "portfolio"), user.clone());
+        let mut snapshots: Vec<PortfolioSnapshot> = env.storage().instance().get(&key).unwrap_or(Vec::new(&env));
+        snapshots.push_back(snapshot);
+        env.storage().instance().set(&key, &snapshots);
+
+        env.events().publish(
+            (Symbol::new(&env, "portfolio_snapshot"),),
+            (user, value),
+        );
+    }
+
+    /// Record a trade for a user. Admin-only.
+    pub fn record_trade(
+        env: Env,
+        caller: Address,
+        user: Address,
+        pnl: i128,
+        size: i128,
+    ) {
+        caller.require_auth();
+        Self::verify_admin(&env, &caller);
+
+        let trade = Trade {
+            timestamp: env.ledger().timestamp(),
+            pnl,
+            size,
+        };
+
+        let key = (Symbol::new(&env, "trades"), user.clone());
+        let mut trades: Vec<Trade> = env.storage().instance().get(&key).unwrap_or(Vec::new(&env));
+        trades.push_back(trade);
+        env.storage().instance().set(&key, &trades);
+
+        env.events().publish(
+            (Symbol::new(&env, "trade_recorded"),),
+            (user, pnl),
+        );
+    }
+
+    /// Get analytics summary for a user.
+    pub fn get_analytics_summary(env: Env, user: Address) -> AnalyticsSummary {
+        let trades_key = (Symbol::new(&env, "trades"), user.clone());
+        let trades: Vec<Trade> = env.storage().instance().get(&trades_key).unwrap_or(Vec::new(&env));
+
+        let mut total_pnl = 0i128;
+        let mut wins = 0u32;
+        let mut total_trades = 0u32;
+        let mut total_profit = 0i128;
+
+        for i in 0..trades.len() {
+            if let Some(t) = trades.get(i) {
+                total_pnl += t.pnl;
+                if t.pnl > 0 {
+                    wins += 1;
+                    total_profit += t.pnl;
+                }
+                total_trades += 1;
+            }
+        }
+
+        let win_rate = if total_trades > 0 {
+            (wins as i128 * 100) / total_trades as i128
+        } else {
+            0
+        };
+
+        let avg_trade_profit = if total_trades > 0 {
+            total_pnl / total_trades as i128
+        } else {
+            0
+        };
+
+        // Sharpe ratio calculation (simplified)
+        let portfolio_key = (Symbol::new(&env, "portfolio"), user.clone());
+        let snapshots: Vec<PortfolioSnapshot> = env.storage().instance().get(&portfolio_key).unwrap_or(Vec::new(&env));
+
+        let mut returns: Vec<i128> = Vec::new(&env);
+        if snapshots.len() > 1 {
+            for i in 1..snapshots.len() {
+                if let Some(curr) = snapshots.get(i) {
+                    if let Some(prev) = snapshots.get(i - 1) {
+                        if prev.value > 0 {
+                            let ret = ((curr.value - prev.value) * 10000) / prev.value; // scaled
+                            returns.push_back(ret);
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut sum_returns = 0i128;
+        let mut sum_sq = 0i128;
+        let n = returns.len() as i128;
+
+        for i in 0..returns.len() {
+            if let Some(r) = returns.get(i) {
+                sum_returns += r;
+                sum_sq += r * r;
+            }
+        }
+
+        let avg_return = if n > 0 { sum_returns / n } else { 0 };
+        let variance = if n > 1 {
+            (sum_sq * n - sum_returns * sum_returns) / (n * (n - 1))
+        } else {
+            0
+        };
+        let std_dev = if variance > 0 {
+            // Approximate sqrt for i128
+            let mut x = variance;
+            let mut y = (x + 1) / 2;
+            while y < x {
+                x = y;
+                y = (x + variance / x) / 2;
+            }
+            x
+        } else {
+            0
+        };
+
+        let sharpe_ratio = if std_dev > 0 {
+            (avg_return * 100) / std_dev
+        } else {
+            0
+        };
+
+        let current_value = if snapshots.len() > 0 {
+            if let Some(last) = snapshots.last() {
+                last.value
+            } else {
+                0
+            }
+        } else {
+            0
+        };
+
+        AnalyticsSummary {
+            total_pnl,
+            win_rate,
+            avg_trade_profit,
+            sharpe_ratio,
+            current_value,
+        }
+    }
+
+    // ========================================================================
     // SNAPSHOTS
     // ========================================================================
 

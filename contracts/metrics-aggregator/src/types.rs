@@ -212,3 +212,37 @@ pub struct Dispute {
     pub resolved: bool,
     pub outcome: bool, // true = dispute upheld (feedback invalid)
 }
+
+// ============================================================================
+// PORTFOLIO ANALYTICS TYPES
+// ============================================================================
+
+/// Portfolio snapshot for value tracking
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct PortfolioSnapshot {
+    pub timestamp: u64,
+    pub value: i128,
+    pub realized_pnl: i128,
+    pub unrealized_pnl: i128,
+}
+
+/// Individual trade record
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct Trade {
+    pub timestamp: u64,
+    pub pnl: i128,
+    pub size: i128,
+}
+
+/// Analytics summary for a user
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct AnalyticsSummary {
+    pub total_pnl: i128,
+    pub win_rate: i128, // percentage * 100
+    pub avg_trade_profit: i128,
+    pub sharpe_ratio: i128, // * 100
+    pub current_value: i128,
+}
